@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zipcsv2parquet"
+description = "Directly convert CSV files from inside a ZIP archive into compressed Parquet, without extracting"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = ["pyarrow>=14"]
+dynamic = ["version"]
+
+[project.scripts]
+zipcsv2parquet = "zipcsv2parquet.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["zipcsv2parquet"]
+
+[tool.setuptools.dynamic]
+version = { attr = "zipcsv2parquet._version.__version__" }
