@@ -11,11 +11,13 @@ compression of the original, every row in exactly one part, in order.
 The paths written go to stdout one per line, the same contract as
 zipcsv2parquet, so a script loops over them the same way.
 
-The default --rows is 1,000,000: under Excel's 1,048,576-row sheet with
-room for a header and a total row, so each part becomes a usable
-workbook. A file with no more rows than that is not split - it is
-printed as its own single "part", so a caller need not special-case
-the small file.
+The default --rows is 250,000: a workbook that writes in a fraction
+of the time a million-row one takes and opens and filters comfortably.
+Excel's limit is 1,048,576 rows per sheet, and people do work with
+sheets that size, but that should be asked for (Kris 2026-09-14):
+--rows 1000000. A file with no more rows than the size is not split -
+it is printed as its own single "part", so a caller need not
+special-case the small file.
 
 The cut is at exactly N rows, not at the file's row-group seams.
 Splitting at a seam would avoid re-encoding one chunk per cut and
@@ -35,7 +37,7 @@ from zipcsv2parquet._version import __version__
 from zipcsv2parquet.convert import COMPRESSION, COMPRESSION_LEVEL, ROW_GROUP_ROWS
 
 
-DEFAULT_ROWS = 1_000_000
+DEFAULT_ROWS = 250_000
 
 
 class SplitError(Exception):
@@ -115,7 +117,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--version', action='version', version=f"parquetsplit {__version__}")
     parser.add_argument('source', help='the Parquet file to split')
     parser.add_argument('--rows', type=int, default=DEFAULT_ROWS,
-                        help=f'rows per part (default {DEFAULT_ROWS:,}: fits an Excel sheet with room to spare)')
+                        help=f'rows per part (default {DEFAULT_ROWS:,}: a workbook that writes and opens quickly; '
+                             f'up to 1000000 fits one Excel sheet, if that is what you want)')
     parser.add_argument('--out-dir', default='', help='where the parts go (default: beside the file)')
     parser.add_argument('--overwrite', action='store_true', help='replace existing parts')
     return parser

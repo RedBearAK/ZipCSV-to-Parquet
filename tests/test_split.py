@@ -60,7 +60,7 @@ def test_small_file_is_returned_unsplit() -> bool:
     print('\nA file that fits in one part is returned as itself and nothing is written...')
     source = make('small.parquet', 5000)
     before = sorted(os.listdir(WORK))
-    parts = split_parquet(source, WORK, 1_000_000)
+    parts = split_parquet(source, WORK)          # the default size, 250,000
     good = parts == [source] and sorted(os.listdir(WORK)) == before
     print(f"  returned itself={parts == [source]} nothing written={sorted(os.listdir(WORK)) == before} -> {'OK' if good else 'FAIL'}")
     return good

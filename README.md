@@ -70,13 +70,14 @@ can be simple.
 The second command: cut a Parquet into parts of at most N rows, at
 exactly N.
 
-    parquetsplit FILE.parquet                 parts of 1,000,000 rows
-    parquetsplit FILE.parquet --rows 500000
+    parquetsplit FILE.parquet                 parts of 250,000 rows
+    parquetsplit FILE.parquet --rows 1000000  as big as one Excel sheet holds
 
 Parts are `FILE_part01.parquet`, `FILE_part02.parquet`, ... beside the
 file (or in `--out-dir`), the original's schema and compression, every
-row in exactly one part, in order. The default fits an Excel sheet with
-room for a header. A file that already fits is not split: it is printed
+row in exactly one part, in order. The default, 250,000, is a workbook that
+writes and opens quickly; a million-row sheet is what Excel can hold,
+and people who want that can ask. A file that already fits is not split: it is printed
 as its own single part, so a script need not special-case it. Paths on
 stdout, narrative on stderr, the same contract as the converter.
 
@@ -109,9 +110,7 @@ at least one file, 1 otherwise. So:
 
 ## Install
 
-    pip install -e .        # gives the `zipcsv2parquet` and `parquetsplit` commands
-
-or run in place:
+Run in place (this is how the tech-bin stubs call it):
 
     PYTHONPATH=src python3 -m zipcsv2parquet FILE.zip
 
