@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('archives', nargs='+', help='zip file(s) holding csv member(s)')
     parser.add_argument('--out-dir', default='', help='where the Parquet goes (default: beside each archive)')
     parser.add_argument('--level', type=int, default=COMPRESSION_LEVEL,
-                        help=f'zstd level, 1 fast .. 19 small (default {COMPRESSION_LEVEL}, what the replica uses)')
+                        help=f'zstd level, 1 fast .. 19 small (default {COMPRESSION_LEVEL})')
     parser.add_argument('--encoding', default='utf8', help='csv text encoding (default utf8; a BOM is fine)')
     parser.add_argument('--delimiter', default=',', help="field delimiter (default ',')")
     parser.add_argument('--infer-types', action='store_true',

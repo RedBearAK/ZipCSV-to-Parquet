@@ -192,11 +192,43 @@ def test_cli_contract() -> bool:
     return good
 
 
+def test_inner_quote_the_export_forgot_to_double() -> bool:
+    """The IMS shape: a note like 40" high inside a quoted field, with a
+    newline after it. Strict parsing reads the quote as closing the field
+    and splits the record at the newline - "Expected 39 columns, got 14".
+    The repair doubles the quote on the way through; the value keeps it."""
+    print('\nAn undoubled inner quote followed by a newline inside a note converts, value intact, repair counted...')
+    rows = 'A,B,C\n' + ''.join(f'{i},"box 40" high\nsecond line",{i * 2}\n' for i in range(50))
+    archive = make_zip('quotes.zip', {'quotes.csv': rows})
+    out = os.path.join(WORK, 'quotes_out')
+    messages = []
+    written = convert_archive(archive, out, report=messages.append)
+    data = rows_of(written[0])
+    value_intact = data[7]['B'] == 'box 40" high\nsecond line'
+    counted = any('50 inner quote(s) doubled' in message for message in messages)
+    good = len(data) == 50 and value_intact and counted
+    print(f"  rows={len(data)} value intact={value_intact} repairs reported={counted} -> {'OK' if good else 'FAIL'}")
+    return good
+
+
+def test_finder_junk_is_silent() -> bool:
+    print('\n__MACOSX and ._ members are skipped without a word; a README is still mentioned...')
+    archive = make_zip('junk.zip', {'d.csv': CSV, '__MACOSX/._d.csv': 'x', '.DS_Store': 'x', 'README.txt': 'hi'})
+    messages = []
+    convert_archive(archive, os.path.join(WORK, 'junk_out'), report=messages.append)
+    junk_mentioned = any('__MACOSX' in m or '._d' in m or 'DS_Store' in m for m in messages)
+    readme_mentioned = any('README.txt' in m for m in messages)
+    good = not junk_mentioned and readme_mentioned
+    print(f"  junk mentioned={junk_mentioned} README mentioned={readme_mentioned} -> {'OK' if good else 'FAIL'}")
+    return good
+
+
 def main() -> int:
     tests = [test_one_csv_with_noise_beside_it, test_two_csvs_and_a_folder, test_no_csv_is_an_error,
              test_same_basename_twice_is_refused, test_malformed_member_is_refused_and_leaves_nothing,
              test_header_only_is_refused, test_existing_output_needs_overwrite,
-             test_large_member_streams_in_row_groups, test_infer_types_is_opt_in, test_cli_contract]
+             test_large_member_streams_in_row_groups, test_infer_types_is_opt_in, test_cli_contract,
+             test_inner_quote_the_export_forgot_to_double, test_finder_junk_is_silent]
     passed = 0
     try:
         for test in tests:

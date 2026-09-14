@@ -15,6 +15,13 @@ silently salvaged a broken one would hide that it was broken.
 Types are text on purpose. Package numbers, lot numbers and sequence
 numbers all look numeric and are not; a downstream recipe types what it
 needs. --infer-types is the opt-in.
+
+One repair IS made, because it is a property of complete files rather
+than broken ones: an inner quote the export forgot to double (a note
+like  40" high  inside a quoted field) is doubled on the way through
+(inner_quotes.py). Without it a strict parser
+closes the field at that quote and every line break inside a note
+becomes a record boundary. The count of repairs is reported.
 """
 
 import io
@@ -26,6 +33,7 @@ import pyarrow.csv as pcsv
 import pyarrow.parquet as pq
 
 from zipcsv2parquet.convert_rgx import csv_member_rgx, junk_member_rgx
+from zipcsv2parquet.inner_quotes import InnerQuoteRepair
 
 
 COMPRESSION = 'zstd'
@@ -57,7 +65,9 @@ def plan(archive_path: str, out_dir: str) -> tuple:
     seen = {}
     for info in infos:
         base = os.path.basename(info.filename)
-        if junk_member_rgx.search(info.filename) or not csv_member_rgx.search(base):
+        if junk_member_rgx.search(info.filename):
+            continue                        # Finder's leavings: not worth a line
+        if not csv_member_rgx.search(base):
             ignored.append(info.filename)
             continue
         stem = os.path.splitext(base)[0]
@@ -77,7 +87,7 @@ def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimi
     try:
         with archive.open(member.name) as stream:
             reader = pcsv.open_csv(
-                stream,
+                InnerQuoteRepair(stream, delimiter.encode('ascii')),
                 read_options=pcsv.ReadOptions(encoding=encoding),
                 parse_options=pcsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
             )
@@ -89,9 +99,10 @@ def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimi
 
 
 def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encoding: str,
-                   delimiter: str, infer_types: bool) -> int:
-    """Stream one member to its Parquet. Returns the row count. On any
-    parse failure the partial output is removed and ConvertError raised."""
+                   delimiter: str, infer_types: bool) -> tuple:
+    """Stream one member to its Parquet. Returns (row count, inner quotes
+    repaired). On any parse failure the partial output is removed and
+    ConvertError raised."""
     names = column_names(archive, member, encoding, delimiter)
     if len(set(names)) != len(names):
         duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -103,10 +114,12 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
     rows = 0
     temp_path = member.out_path + '.partial'
     writer = None
+    repair = None
     try:
         with archive.open(member.name) as stream:
+            repair = InnerQuoteRepair(stream, delimiter.encode('ascii'))
             reader = pcsv.open_csv(
-                stream,
+                repair,
                 read_options=pcsv.ReadOptions(encoding=encoding, block_size=8 << 20),
                 parse_options=pcsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
                 convert_options=convert,
@@ -130,7 +143,7 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
         if rows == 0:
             raise ConvertError(f"{member.name!r}: header only, no data rows")
         os.replace(temp_path, member.out_path)
-        return rows
+        return rows, repair.repairs
     except (pa.ArrowInvalid, pa.ArrowException, UnicodeDecodeError, ValueError) as error:
         raise ConvertError(f"{member.name!r} does not parse cleanly: {error}") from error
     finally:
@@ -159,10 +172,11 @@ def convert_archive(archive_path: str, out_dir: str, level: int = COMPRESSION_LE
         for member in members:
             if os.path.exists(member.out_path) and not overwrite:
                 raise ConvertError(f"{member.out_path!r} exists; use --overwrite to replace it")
-            rows = convert_member(archive, member, level, encoding, delimiter, infer_types)
+            rows, repairs = convert_member(archive, member, level, encoding, delimiter, infer_types)
             out_size = os.path.getsize(member.out_path)
+            repaired = f", {repairs:,} inner quote(s) doubled" if repairs else ''
             say(f"wrote      {os.path.basename(member.out_path)!r}: {rows:,} rows, "
-                f"{member.size / 1e6:,.1f} MB csv -> {out_size / 1e6:,.1f} MB parquet")
+                f"{member.size / 1e6:,.1f} MB csv -> {out_size / 1e6:,.1f} MB parquet{repaired}")
             written.append(member.out_path)
     return written
 
