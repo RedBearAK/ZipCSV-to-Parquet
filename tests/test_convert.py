@@ -276,6 +276,56 @@ def test_failure_says_where() -> bool:
         return good
 
 
+def test_truncated_tail_is_named_and_droppable() -> bool:
+    """A download that stopped mid-record: the last line is short and has
+    no newline. Refused with that said in words; with the flag, everything
+    above the fragment converts and the note says what was dropped."""
+    print('\nA truncated final record is dropped and reported by default; --strict refuses it, naming it...')
+    body = 'W,Ctr,Name,Species\n' + '"Ready","CGMU 1",plain,PINK\n' * 3000 + '"Ready","SBIU 2400861",2529D272'
+    archive = make_zip('trunc.zip', {'trunc.csv': body})
+    try:
+        convert_archive(archive, os.path.join(WORK, 'trunc_refused'), strict=True)
+        print('  FAIL: strict accepted')
+        return False
+    except ConvertError as error:
+        named = 'stopped mid-record' in str(error)
+    messages = []
+    written = convert_archive(archive, os.path.join(WORK, 'trunc_dropped'), report=messages.append)
+    rows = len(rows_of(written[0]))
+    noted = any(message.startswith('note') and 'dropped' in message for message in messages)
+    good = named and rows == 3000 and noted
+    print(f"  strict names it={named} default rows without fragment={rows} note={noted} -> {'OK' if good else 'FAIL'}")
+    return good
+
+
+def test_a_short_record_in_the_middle_is_not_a_truncation() -> bool:
+    print('\nA short record that is NOT last is refused (it is not a truncation)...')
+    body = 'W,Ctr,Name,Species\n' + '"Ready","CGMU 1",plain,PINK\n' * 10 + '"Ready","SBIU 1",x\n' + '"Ready","CGMU 1",plain,PINK\n' * 10
+    archive = make_zip('midshort.zip', {'midshort.csv': body})
+    try:
+        convert_archive(archive, os.path.join(WORK, 'midshort_out'))
+        print('  FAIL: accepted')
+        return False
+    except ConvertError as error:
+        good = 'record 11 has 3 fields' in str(error) and 'stopped mid-record' not in str(error)
+        print(f"  refused, named record 11={('record 11 has 3 fields' in str(error))}, not called a truncation={('stopped mid-record' not in str(error))} -> {'OK' if good else 'FAIL'}")
+        return good
+
+
+def test_short_last_record_with_newline_is_a_bad_row() -> bool:
+    print('\nA short last record that DOES end with a newline is a bad row, not a truncation: refused...')
+    body = 'W,Ctr,Name,Species\n' + '"Ready","CGMU 1",plain,PINK\n' * 20 + '"Ready","SBIU 1",x\n'
+    archive = make_zip('shortlast.zip', {'shortlast.csv': body})
+    try:
+        convert_archive(archive, os.path.join(WORK, 'shortlast_out'))
+        print('  FAIL: accepted')
+        return False
+    except ConvertError as error:
+        good = 'record 21 has 3 fields' in str(error) and 'stopped mid-record' not in str(error)
+        print(f"  refused as a bad row={good} -> {'OK' if good else 'FAIL'}")
+        return good
+
+
 def main() -> int:
     tests = [test_one_csv_with_noise_beside_it, test_two_csvs_and_a_folder, test_no_csv_is_an_error,
              test_same_basename_twice_is_refused, test_malformed_member_is_refused_and_leaves_nothing,
@@ -283,7 +333,8 @@ def main() -> int:
              test_large_member_streams_in_row_groups, test_infer_types_is_opt_in, test_cli_contract,
              test_inner_quote_the_export_forgot_to_double, test_finder_junk_is_silent,
              test_value_ending_in_a_quote_needs_the_dialect_flag, test_standard_escapes_still_work_without_the_flag,
-             test_failure_says_where]
+             test_failure_says_where, test_truncated_tail_is_named_and_droppable,
+             test_a_short_record_in_the_middle_is_not_a_truncation, test_short_last_record_with_newline_is_a_bad_row]
     passed = 0
     try:
         for test in tests:

@@ -54,8 +54,14 @@ can be simple.
   of fields, bad bytes - is refused with the reason AND the place: the
   record number, the physical lines it spans, how it parsed, and the raw
   bytes of those lines with every quote and line break visible. No
-  partial file is left behind. An export from a system should be complete; a
-  tool that quietly salvaged a truncated one would hide that it was.
+  partial file is left behind.
+- One kind of bad file is recognized and handled, because its shape is
+  unambiguous: a download that stopped mid-record ends with a LAST record
+  that is short and has no final newline, and nothing else writes a file
+  that way. The fragment is dropped, everything above it is converted,
+  and a `note` line on stderr says so. `--strict` refuses it instead. A
+  short record anywhere else, or a short last record that does end with
+  a newline, is a bad row and is refused either way.
 - A header-only csv is refused. An existing Parquet is not replaced
   unless `--overwrite`.
 
@@ -95,11 +101,13 @@ Version by script: `python3 dev_notes/bump_version.py`.
 
     PYTHONPATH=src python3 tests/test_convert.py
 
-Fifteen shapes: one csv with noise beside it, two csvs (one in a folder),
+Eighteen shapes: one csv with noise beside it, two csvs (one in a folder),
 none, duplicate basenames, a malformed member, header only, an existing
 output, a 600,000-row member streamed in row groups, type inference as
 opt-in, the stdout / stderr / exit-code contract, the undoubled
 inner-quote shape (value intact, repair counted), Finder junk kept silent, a value
 ending in a quote refused as standard and converted with the dialect
 flag, standard escaping intact without it, and a refusal that names
-the record and shows its bytes.
+the record and shows its bytes, a truncated tail dropped and reported
+(refused under --strict), a short record mid-file refused, and a short
+last record that ends with a newline refused as a bad row.

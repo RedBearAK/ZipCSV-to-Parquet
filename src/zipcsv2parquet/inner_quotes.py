@@ -49,11 +49,13 @@ class InnerQuoteRepair(io.RawIOBase):
     """Reads from `source` (any object with read(n) -> bytes) and yields
     the same bytes with inner quotes doubled. Counts the repairs."""
 
-    def __init__(self, source, delimiter: bytes = b',', undoubled_quotes: bool = False):
+    def __init__(self, source, delimiter: bytes = b',', undoubled_quotes: bool = False, limit: int = 0):
         super().__init__()
         self.source = source
         self.delimiter = delimiter[0]
         self.undoubled_quotes = undoubled_quotes
+        self.limit = limit                  # read no further than this byte offset (0: no limit)
+        self.consumed = 0
         self.inside = False
         self.skip_next = False          # the second half of a "" pair
         self.previous = None            # last byte emitted or consumed
@@ -104,7 +106,11 @@ class InnerQuoteRepair(io.RawIOBase):
     def readinto(self, buffer) -> int:
         wanted = len(buffer)
         while len(self.out) < wanted and not self.exhausted:
-            chunk = self.source.read(max(wanted, 1 << 20))
+            ask = max(wanted, 1 << 20)
+            if self.limit:
+                ask = min(ask, self.limit - self.consumed)
+            chunk = self.source.read(ask) if ask > 0 else b''
+            self.consumed += len(chunk)
             if not chunk:
                 self.exhausted = True
                 self._process(b'', final=True)

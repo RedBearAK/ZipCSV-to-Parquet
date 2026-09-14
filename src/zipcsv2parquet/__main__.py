@@ -37,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--infer-types', action='store_true',
                         help='let pyarrow infer column types instead of keeping every column as text')
     parser.add_argument('--overwrite', action='store_true', help='replace a Parquet that already exists')
+    parser.add_argument('--strict', action='store_true',
+                        help='refuse a download that stopped mid-record (a short last record with no final '
+                             'newline) instead of dropping the fragment and saying so')
     parser.add_argument('--undoubled-quotes', action='store_true',
                         help='the exporter never doubles a quote inside a field, so "" can only be an inner '
                              'quote followed by the closing one (a value ending in an inch mark); off, "" is '
@@ -54,6 +57,7 @@ def main(argv: list = None) -> int:
                 archive_path, out_dir, level=arguments.level, encoding=arguments.encoding,
                 delimiter=arguments.delimiter, infer_types=arguments.infer_types,
                 overwrite=arguments.overwrite, undoubled_quotes=arguments.undoubled_quotes,
+                strict=arguments.strict,
                 report=lambda message: print(f"  {message}", file=sys.stderr))
         except (ConvertError, OSError) as error:
             print(f"error: {error}", file=sys.stderr)

@@ -28,9 +28,21 @@ import zipfile
 from zipcsv2parquet.inner_quotes import InnerQuoteRepair
 
 
+class Finding:
+    """What the csv module found: a description for a person, and whether
+    it is a truncated tail - the LAST record, short, with no final newline
+    - which a caller may choose to drop (cut_at is the byte offset where
+    that last physical line starts)."""
+
+    def __init__(self, description: str, truncated_tail: bool = False, cut_at: int = 0):
+        self.description = description
+        self.truncated_tail = truncated_tail
+        self.cut_at = cut_at
+
+
 def locate_bad_record(archive: zipfile.ZipFile, member_name: str, encoding: str, delimiter: str,
-                      undoubled_quotes: bool, context_lines: int = 2) -> str:
-    """A multi-line description of the first bad record, or '' if the
+                      undoubled_quotes: bool, context_lines: int = 2) -> Finding:
+    """The first bad record, or a Finding with an empty description if the
     csv module finds nothing wrong (then the fault is pyarrow-specific)."""
     with archive.open(member_name) as stream:
         repaired = InnerQuoteRepair(stream, delimiter.encode('ascii'), undoubled_quotes)
@@ -39,17 +51,43 @@ def locate_bad_record(archive: zipfile.ZipFile, member_name: str, encoding: str,
         reader = csv.reader(text, delimiter=delimiter)
         header = next(reader, None)
         if header is None:
-            return ''
+            return Finding('')
         width = len(header)
         previous_end = reader.line_num
         previous_record = header
         for index, record in enumerate(reader, 1):
             start, end = previous_end + 1, reader.line_num
             if len(record) != width:
-                return describe(archive, member_name, index, width, len(record), start, end,
-                                previous_record, record, context_lines)
+                is_last = next(reader, None) is None
+                description = describe(archive, member_name, index, width, len(record), start, end,
+                                       previous_record, record, context_lines)
+                if is_last and len(record) < width:
+                    tail = tail_facts(archive, member_name, start)
+                    if tail is not None:
+                        description += ("\n  This is the LAST record, short, and the file does not end with a newline: "
+                                        "a download that stopped mid-record. Everything above it is complete "
+                                        "(dropped and reported unless --strict).")
+                        return Finding(description, truncated_tail=True, cut_at=tail)
+                return Finding(description)
             previous_end, previous_record = end, record
-    return ''
+    return Finding('')
+
+
+def tail_facts(archive: zipfile.ZipFile, member_name: str, last_start_line: int):
+    """The byte offset where physical line `last_start_line` begins, if
+    the member does not end with a newline; else None."""
+    offset = 0
+    start_offset = None
+    last = b''
+    with archive.open(member_name) as stream:
+        for number, raw in enumerate(stream, 1):
+            if number == last_start_line:
+                start_offset = offset
+            offset += len(raw)
+            last = raw
+    if start_offset is None or last.endswith(b'\n') or last.endswith(b'\r'):
+        return None
+    return start_offset
 
 
 def describe(archive, member_name, index, width, got, start, end, previous_record, record, context_lines) -> str:
