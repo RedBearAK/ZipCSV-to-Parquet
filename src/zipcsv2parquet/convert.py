@@ -81,13 +81,14 @@ def plan(archive_path: str, out_dir: str) -> tuple:
     return members, ignored
 
 
-def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimiter: str) -> list:
+def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimiter: str,
+                 undoubled_quotes: bool = False) -> list:
     """The header as pyarrow reads it - quoted names and a BOM handled -
     from a first, cheap open that reads only the first block."""
     try:
         with archive.open(member.name) as stream:
             reader = pcsv.open_csv(
-                InnerQuoteRepair(stream, delimiter.encode('ascii')),
+                InnerQuoteRepair(stream, delimiter.encode('ascii'), undoubled_quotes),
                 read_options=pcsv.ReadOptions(encoding=encoding),
                 parse_options=pcsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
             )
@@ -99,11 +100,11 @@ def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimi
 
 
 def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encoding: str,
-                   delimiter: str, infer_types: bool) -> tuple:
+                   delimiter: str, infer_types: bool, undoubled_quotes: bool = False) -> tuple:
     """Stream one member to its Parquet. Returns (row count, inner quotes
     repaired). On any parse failure the partial output is removed and
     ConvertError raised."""
-    names = column_names(archive, member, encoding, delimiter)
+    names = column_names(archive, member, encoding, delimiter, undoubled_quotes)
     if len(set(names)) != len(names):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         raise ConvertError(f"{member.name!r}: duplicate column names {duplicates}")
@@ -117,7 +118,7 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
     repair = None
     try:
         with archive.open(member.name) as stream:
-            repair = InnerQuoteRepair(stream, delimiter.encode('ascii'))
+            repair = InnerQuoteRepair(stream, delimiter.encode('ascii'), undoubled_quotes)
             reader = pcsv.open_csv(
                 repair,
                 read_options=pcsv.ReadOptions(encoding=encoding, block_size=8 << 20),
@@ -155,7 +156,7 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
 
 def convert_archive(archive_path: str, out_dir: str, level: int = COMPRESSION_LEVEL, encoding: str = 'utf8',
                     delimiter: str = ',', infer_types: bool = False, overwrite: bool = False,
-                    report=None) -> list:
+                    undoubled_quotes: bool = False, report=None) -> list:
     """Convert every csv member; return the Parquet paths written, in
     archive order. `report(message)` receives progress lines."""
     say = report or (lambda message: None)
@@ -172,7 +173,7 @@ def convert_archive(archive_path: str, out_dir: str, level: int = COMPRESSION_LE
         for member in members:
             if os.path.exists(member.out_path) and not overwrite:
                 raise ConvertError(f"{member.out_path!r} exists; use --overwrite to replace it")
-            rows, repairs = convert_member(archive, member, level, encoding, delimiter, infer_types)
+            rows, repairs = convert_member(archive, member, level, encoding, delimiter, infer_types, undoubled_quotes)
             out_size = os.path.getsize(member.out_path)
             repaired = f", {repairs:,} inner quote(s) doubled" if repairs else ''
             say(f"wrote      {os.path.basename(member.out_path)!r}: {rows:,} rows, "

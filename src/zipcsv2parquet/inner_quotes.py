@@ -22,6 +22,19 @@ member never has to be in memory:
 The machine needs one byte of lookahead, so the last byte of every
 chunk is held back until the next chunk (or EOF) says what follows it.
 Embedded line breaks inside quoted fields pass through untouched.
+
+The `""` ambiguity (2026-09-14). A value that ENDS with a quote -
+`Green Roe P-1F 3 x 7.5"` - is written by such an exporter as
+`"...7.5""` followed by the delimiter. Standard csv reads `""` as an
+escaped quote with the field still open, so the parser swallows the
+rest of the record and part of the next until a lone quote appears:
+"Expected 39 columns, got 14" on what is a complete row. The bytes
+cannot say which reading is meant. What CAN say is a property of the
+exporter: one that never doubles quotes cannot have written an escape,
+so `undoubled_quotes=True` reads every quote inside a field that is not
+followed by a delimiter, a line end or EOF as an inner quote - including
+one followed by another quote - and doubles it. Off by default: the
+standard reading stands for exporters that escape properly.
 """
 
 import io
@@ -36,10 +49,11 @@ class InnerQuoteRepair(io.RawIOBase):
     """Reads from `source` (any object with read(n) -> bytes) and yields
     the same bytes with inner quotes doubled. Counts the repairs."""
 
-    def __init__(self, source, delimiter: bytes = b','):
+    def __init__(self, source, delimiter: bytes = b',', undoubled_quotes: bool = False):
         super().__init__()
         self.source = source
         self.delimiter = delimiter[0]
+        self.undoubled_quotes = undoubled_quotes
         self.inside = False
         self.skip_next = False          # the second half of a "" pair
         self.previous = None            # last byte emitted or consumed
@@ -72,10 +86,10 @@ class InnerQuoteRepair(io.RawIOBase):
                 continue
             following = data[index + 1] if index + 1 < len(data) else None
             if self.inside:
-                if following == QUOTE:
-                    self.skip_next = True
-                elif following in (None, self.delimiter, LINE_FEED, CARRIAGE_RETURN):
+                if following in (None, self.delimiter, LINE_FEED, CARRIAGE_RETURN):
                     self.inside = False
+                elif following == QUOTE and not self.undoubled_quotes:
+                    self.skip_next = True           # standard csv: an escaped quote
                 else:
                     out += data[copied:index]
                     out += b'""'

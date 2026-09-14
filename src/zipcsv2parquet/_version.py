@@ -3,7 +3,7 @@ zipcsv2parquet/_version.py
 """
 
 # Year-Month-Day versioning scheme
-__version__ = "20260914.1"
+__version__ = "20260914.2"
 __author__ = "RedBearAK"
 
 

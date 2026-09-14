@@ -223,12 +223,49 @@ def test_finder_junk_is_silent() -> bool:
     return good
 
 
+def test_value_ending_in_a_quote_needs_the_dialect_flag() -> bool:
+    """A value that ENDS with a quote (7.5") from an exporter that never
+    doubles quotes arrives as 7.5"" before the delimiter. Standard csv
+    reads that as an escape and swallows the rest of the record (and part
+    of the next): "Expected 39 columns, got 14" on a complete row.
+    --undoubled-quotes says the exporter cannot have written an escape."""
+    print('\nA value ending in an inch mark: refused as standard csv, converted with --undoubled-quotes, value intact...')
+    body = 'W,Ctr,Name,Species\n' + ''.join(
+        f'"Ready","CGMU {i}","Block Pink Salmon Green Roe P-1F 3 x 7.5"",SALMON\n"Next","TEMU {i}",plain,PINK\n'
+        for i in range(30))
+    archive = make_zip('inch.zip', {'inch.csv': body})
+    try:
+        convert_archive(archive, os.path.join(WORK, 'inch_standard'))
+        standard_refused = False
+    except ConvertError as error:
+        standard_refused = 'does not parse cleanly' in str(error)
+    messages = []
+    written = convert_archive(archive, os.path.join(WORK, 'inch_flag'), undoubled_quotes=True, report=messages.append)
+    data = rows_of(written[0])
+    intact = data[0]['Name'] == 'Block Pink Salmon Green Roe P-1F 3 x 7.5"' and data[1]['Species'] == 'PINK'
+    counted = any('30 inner quote(s) doubled' in message for message in messages)
+    good = standard_refused and len(data) == 60 and intact and counted
+    print(f"  standard refused={standard_refused}; with flag rows={len(data)} value intact={intact} repairs counted={counted} -> {'OK' if good else 'FAIL'}")
+    return good
+
+
+def test_standard_escapes_still_work_without_the_flag() -> bool:
+    print('\nWithout the flag, a properly escaped "" inside a field is still an escaped quote...')
+    archive = make_zip('escaped.zip', {'escaped.csv': 'A,B\n1,"he said ""hi"", then left"\n2,"plain"\n'})
+    written = convert_archive(archive, os.path.join(WORK, 'escaped_out'))
+    data = rows_of(written[0])
+    good = len(data) == 2 and data[0]['B'] == 'he said "hi", then left'
+    print(f"  rows={len(data)} B={data[0]['B']!r} -> {'OK' if good else 'FAIL'}")
+    return good
+
+
 def main() -> int:
     tests = [test_one_csv_with_noise_beside_it, test_two_csvs_and_a_folder, test_no_csv_is_an_error,
              test_same_basename_twice_is_refused, test_malformed_member_is_refused_and_leaves_nothing,
              test_header_only_is_refused, test_existing_output_needs_overwrite,
              test_large_member_streams_in_row_groups, test_infer_types_is_opt_in, test_cli_contract,
-             test_inner_quote_the_export_forgot_to_double, test_finder_junk_is_silent]
+             test_inner_quote_the_export_forgot_to_double, test_finder_junk_is_silent,
+             test_value_ending_in_a_quote_needs_the_dialect_flag, test_standard_escapes_still_work_without_the_flag]
     passed = 0
     try:
         for test in tests:

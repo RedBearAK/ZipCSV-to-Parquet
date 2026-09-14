@@ -43,6 +43,13 @@ can be simple.
   inside the field becomes a record boundary ("Expected 39 columns, got
   14"). The count is reported. The repair is a two-state machine over
   the quote characters, streamed so the file never has to be in memory.
+- A value that ENDS in a quote (`3 x 7.5"`) from such an exporter arrives
+  as `7.5""` before the delimiter, which standard csv reads as an escaped
+  quote with the field still open - the parser then swallows the rest of
+  the record. The bytes cannot say which is meant; the exporter can.
+  `--undoubled-quotes` says it never doubles a quote, so `""` can only be
+  an inner quote followed by the closing one. Off by default, so proper
+  standard escaping is read as standard.
 - A csv that still does not parse cleanly - a row with the wrong number
   of fields, bad bytes - is refused with the reason, and no partial
   file is left behind. An export from a system should be complete; a
@@ -85,9 +92,10 @@ Version by script: `python3 dev_notes/bump_version.py`.
 
     PYTHONPATH=src python3 tests/test_convert.py
 
-Twelve shapes: one csv with noise beside it, two csvs (one in a folder),
+Fourteen shapes: one csv with noise beside it, two csvs (one in a folder),
 none, duplicate basenames, a malformed member, header only, an existing
 output, a 600,000-row member streamed in row groups, type inference as
 opt-in, the stdout / stderr / exit-code contract, the undoubled
-inner-quote shape (value intact, repair counted), and Finder junk kept
-silent.
+inner-quote shape (value intact, repair counted), Finder junk kept silent, a value
+ending in a quote refused as standard and converted with the dialect
+flag, and standard escaping intact without it.
