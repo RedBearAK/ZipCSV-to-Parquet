@@ -34,6 +34,7 @@ import pyarrow.parquet as pq
 
 from zipcsv2parquet.convert_rgx import csv_member_rgx, junk_member_rgx
 from zipcsv2parquet.inner_quotes import InnerQuoteRepair
+from zipcsv2parquet.diagnose import Progress, locate_bad_record
 
 
 COMPRESSION = 'zstd'
@@ -85,18 +86,26 @@ def column_names(archive: zipfile.ZipFile, member: Member, encoding: str, delimi
                  undoubled_quotes: bool = False) -> list:
     """The header as pyarrow reads it - quoted names and a BOM handled -
     from a first, cheap open that reads only the first block."""
+    # pyarrow reads a whole first block to find the header, so a fault
+    # early in the file surfaces HERE rather than in the stream; the caller
+    # catches and diagnoses either the same way
+    with archive.open(member.name) as stream:
+        reader = pcsv.open_csv(
+            InnerQuoteRepair(stream, delimiter.encode('ascii'), undoubled_quotes),
+            read_options=pcsv.ReadOptions(encoding=encoding),
+            parse_options=pcsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
+        )
+        return list(reader.schema.names)
+
+
+def located(archive, member, encoding, delimiter, undoubled_quotes) -> str:
+    """'\n' + where the first bad record is, or '' - and never an error of
+    its own, since the diagnosis must not hide the failure it explains."""
     try:
-        with archive.open(member.name) as stream:
-            reader = pcsv.open_csv(
-                InnerQuoteRepair(stream, delimiter.encode('ascii'), undoubled_quotes),
-                read_options=pcsv.ReadOptions(encoding=encoding),
-                parse_options=pcsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
-            )
-            return list(reader.schema.names)
-    except (pa.ArrowInvalid, pa.ArrowException, UnicodeDecodeError, ValueError) as error:
-        # pyarrow reads the first block to find the header, so a fault
-        # early in the file surfaces here rather than in the stream
-        raise ConvertError(f"{member.name!r} does not parse cleanly: {error}") from error
+        where = locate_bad_record(archive, member.name, encoding, delimiter, undoubled_quotes)
+    except Exception as locate_error:
+        where = f"(could not locate the record: {locate_error})"
+    return f"\n{where}" if where else ''
 
 
 def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encoding: str,
@@ -104,7 +113,11 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
     """Stream one member to its Parquet. Returns (row count, inner quotes
     repaired). On any parse failure the partial output is removed and
     ConvertError raised."""
-    names = column_names(archive, member, encoding, delimiter, undoubled_quotes)
+    try:
+        names = column_names(archive, member, encoding, delimiter, undoubled_quotes)
+    except (pa.ArrowInvalid, pa.ArrowException, UnicodeDecodeError, ValueError) as error:
+        raise ConvertError(f"{member.name!r} does not parse cleanly: {error}"
+                           + located(archive, member, encoding, delimiter, undoubled_quotes)) from error
     if len(set(names)) != len(names):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         raise ConvertError(f"{member.name!r}: duplicate column names {duplicates}")
@@ -127,11 +140,13 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
             )
             writer = pq.ParquetWriter(temp_path, reader.schema, compression=COMPRESSION,
                                       compression_level=level)
+            progress = Progress(os.path.basename(member.name))
             pending = []
             pending_rows = 0
             for batch in reader:
                 pending.append(batch)
                 pending_rows += batch.num_rows
+                progress.tick(rows + pending_rows)
                 if pending_rows >= ROW_GROUP_ROWS:
                     writer.write_table(pa.Table.from_batches(pending))
                     rows += pending_rows
@@ -139,6 +154,7 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
             if pending:
                 writer.write_table(pa.Table.from_batches(pending))
                 rows += pending_rows
+            progress.done()
         writer.close()
         writer = None
         if rows == 0:
@@ -146,7 +162,8 @@ def convert_member(archive: zipfile.ZipFile, member: Member, level: int, encodin
         os.replace(temp_path, member.out_path)
         return rows, repair.repairs
     except (pa.ArrowInvalid, pa.ArrowException, UnicodeDecodeError, ValueError) as error:
-        raise ConvertError(f"{member.name!r} does not parse cleanly: {error}") from error
+        raise ConvertError(f"{member.name!r} does not parse cleanly: {error}"
+                           + located(archive, member, encoding, delimiter, undoubled_quotes)) from error
     finally:
         if writer is not None:
             writer.close()

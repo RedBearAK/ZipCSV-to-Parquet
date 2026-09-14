@@ -51,8 +51,10 @@ can be simple.
   an inner quote followed by the closing one. Off by default, so proper
   standard escaping is read as standard.
 - A csv that still does not parse cleanly - a row with the wrong number
-  of fields, bad bytes - is refused with the reason, and no partial
-  file is left behind. An export from a system should be complete; a
+  of fields, bad bytes - is refused with the reason AND the place: the
+  record number, the physical lines it spans, how it parsed, and the raw
+  bytes of those lines with every quote and line break visible. No
+  partial file is left behind. An export from a system should be complete; a
   tool that quietly salvaged a truncated one would hide that it was.
 - A header-only csv is refused. An existing Parquet is not replaced
   unless `--overwrite`.
@@ -74,6 +76,7 @@ at least one file, 1 otherwise. So:
       convert.py            the conversion
       convert_rgx.py        the patterns (kept apart from the code)
       inner_quotes.py       the streaming repair of undoubled inner quotes
+      diagnose.py           where a bad record is, and the progress line
       _version.py           the version, date-based, bumped by script
     tests/test_convert.py   the battery
     dev_notes/              design decisions, and bump_version.py
@@ -92,10 +95,11 @@ Version by script: `python3 dev_notes/bump_version.py`.
 
     PYTHONPATH=src python3 tests/test_convert.py
 
-Fourteen shapes: one csv with noise beside it, two csvs (one in a folder),
+Fifteen shapes: one csv with noise beside it, two csvs (one in a folder),
 none, duplicate basenames, a malformed member, header only, an existing
 output, a 600,000-row member streamed in row groups, type inference as
 opt-in, the stdout / stderr / exit-code contract, the undoubled
 inner-quote shape (value intact, repair counted), Finder junk kept silent, a value
 ending in a quote refused as standard and converted with the dialect
-flag, and standard escaping intact without it.
+flag, standard escaping intact without it, and a refusal that names
+the record and shows its bytes.

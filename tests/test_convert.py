@@ -259,13 +259,31 @@ def test_standard_escapes_still_work_without_the_flag() -> bool:
     return good
 
 
+def test_failure_says_where() -> bool:
+    print('\nA refused member names the record, the physical lines it spans, and shows their raw bytes...')
+    body = 'W,Ctr,Name\n' + '"a","b",c\n' * 3 + '"a","b","bad 7.5"",x\n"d","e",f\n' + '"a","b",c\n' * 2
+    archive = make_zip('where.zip', {'where.csv': body})
+    try:
+        convert_archive(archive, os.path.join(WORK, 'where_out'))
+        print('  FAIL: accepted')
+        return False
+    except ConvertError as error:
+        message = str(error)
+        good = ('record 4 has' in message and 'physical lines 5-6' in message
+                and ">>         5:" in message and 'bad 7.5' in message)
+        print(f"  names the record={('record 4 has' in message)} lines={('physical lines 5-6' in message)} "
+              f"raw bytes shown={('bad 7.5' in message)} -> {'OK' if good else 'FAIL'}")
+        return good
+
+
 def main() -> int:
     tests = [test_one_csv_with_noise_beside_it, test_two_csvs_and_a_folder, test_no_csv_is_an_error,
              test_same_basename_twice_is_refused, test_malformed_member_is_refused_and_leaves_nothing,
              test_header_only_is_refused, test_existing_output_needs_overwrite,
              test_large_member_streams_in_row_groups, test_infer_types_is_opt_in, test_cli_contract,
              test_inner_quote_the_export_forgot_to_double, test_finder_junk_is_silent,
-             test_value_ending_in_a_quote_needs_the_dialect_flag, test_standard_escapes_still_work_without_the_flag]
+             test_value_ending_in_a_quote_needs_the_dialect_flag, test_standard_escapes_still_work_without_the_flag,
+             test_failure_says_where]
     passed = 0
     try:
         for test in tests:
