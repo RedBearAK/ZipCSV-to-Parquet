@@ -13,6 +13,7 @@ dynamic = ["version"]
 
 [project.scripts]
 zipcsv2parquet = "zipcsv2parquet.__main__:main"
+parquetsplit = "zipcsv2parquet.split:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

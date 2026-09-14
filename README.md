@@ -65,6 +65,25 @@ can be simple.
 - A header-only csv is refused. An existing Parquet is not replaced
   unless `--overwrite`.
 
+## parquetsplit
+
+The second command: cut a Parquet into parts of at most N rows, at
+exactly N.
+
+    parquetsplit FILE.parquet                 parts of 1,000,000 rows
+    parquetsplit FILE.parquet --rows 500000
+
+Parts are `FILE_part01.parquet`, `FILE_part02.parquet`, ... beside the
+file (or in `--out-dir`), the original's schema and compression, every
+row in exactly one part, in order. The default fits an Excel sheet with
+room for a header. A file that already fits is not split: it is printed
+as its own single part, so a script need not special-case it. Paths on
+stdout, narrative on stderr, the same contract as the converter.
+
+The cut is at the row a person asked for, not at the file's row-group
+seams: a seam is where the writer happened to start a chunk, an
+artificial place to put a boundary someone named by number.
+
 ## The contract for scripts
 
 Paths written go to STDOUT, one per line, nothing else. Progress, what
@@ -83,13 +102,14 @@ at least one file, 1 otherwise. So:
       convert_rgx.py        the patterns (kept apart from the code)
       inner_quotes.py       the streaming repair of undoubled inner quotes
       diagnose.py           where a bad record is, and the progress line
+      split.py              parquetsplit: parts of at most N rows, exact
       _version.py           the version, date-based, bumped by script
     tests/test_convert.py   the battery
     dev_notes/              design decisions, and bump_version.py
 
 ## Install
 
-    pip install -e .        # gives the `zipcsv2parquet` command
+    pip install -e .        # gives the `zipcsv2parquet` and `parquetsplit` commands
 
 or run in place:
 
@@ -100,6 +120,7 @@ Version by script: `python3 dev_notes/bump_version.py`.
 ## Tests
 
     PYTHONPATH=src python3 tests/test_convert.py
+    PYTHONPATH=src python3 tests/test_split.py
 
 Eighteen shapes: one csv with noise beside it, two csvs (one in a folder),
 none, duplicate basenames, a malformed member, header only, an existing
